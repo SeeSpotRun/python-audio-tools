@@ -33,7 +33,7 @@ MAX_CPUS = audiotools.MAX_JOBS
 
 
 def convert(progress,
-            source_audiofile,
+            source_audiofiles,
             destination_filename,
             destination_class,
             compression,
@@ -45,20 +45,23 @@ def convert(progress,
     try:
         if (((sample_rate is None) and
              (channels is None) and
-             (bits_per_sample is None))):
-            destination_audiofile = source_audiofile.convert(
+             (bits_per_sample is None) and
+             (len(source_audiofiles) == 1))):
+            destination_audiofile = source_audiofiles[0].convert(
                 destination_filename,
                 destination_class,
                 compression,
                 progress)
         else:
-            pcmreader = source_audiofile.to_pcm()
+            pcmreader = audiotools.PCMCat([track.to_pcm() for track in source_audiofiles])
+            total_frames = sum(track.total_frames() for track in source_audiofiles)
+            tname = '/'.join((track.get_metadata().track_name for track in source_audiofiles))
             destination_audiofile = destination_class.from_pcm(
                 destination_filename,
                 audiotools.PCMConverter(
                     audiotools.PCMReaderProgress(
                         pcmreader,
-                        source_audiofile.total_frames(),
+                        total_frames,
                         progress),
                     sample_rate if
                     (sample_rate is not None) else
@@ -72,9 +75,10 @@ def convert(progress,
                     bits_per_sample if (bits_per_sample is not None) else
                     pcmreader.bits_per_sample),
                 compression,
-                source_audiofile.total_frames() if
-                (source_audiofile.lossless() and (sample_rate is None))
+                total_frames if
+                (source_audiofiles[0].lossless() and (sample_rate is None))
                 else None)
+            metadata.track_name = tname
 
         if metadata is not None:
             destination_audiofile.set_metadata(metadata)
@@ -82,7 +86,7 @@ def convert(progress,
         if replay_gain is not None:
             destination_audiofile.set_replay_gain(replay_gain)
 
-        existing_cuesheet = source_audiofile.get_cuesheet()
+        existing_cuesheet = source_audiofiles[0].get_cuesheet()
         if existing_cuesheet is not None:
             destination_audiofile.set_cuesheet(existing_cuesheet)
     except KeyboardInterrupt:
@@ -93,6 +97,30 @@ def convert(progress,
             pass
 
     return destination_filename
+
+# examine the last bit of an audio track to see if it contains silence
+def has_silent_end(track, seconds=1.0, sensitivity=0.015):
+    # grab the last TAIL_SECONDS of the track
+    pcm_frames_offset = int((track.seconds_length() - seconds) * track.sample_rate())
+    total_pcm_frames = int(seconds * track.sample_rate())
+    tail = audiotools.PCMReaderWindow(track.to_pcm(),
+                                      pcm_frames_offset,
+                                      total_pcm_frames)
+
+    # grab ReplayGain calculator which we use to calculate the audio level in the last TAIL_SECONDS
+    gain = audiotools.ReplayGainCalculator(tail.sample_rate)
+
+    # process the tail of track through the replaygain calculator
+    # (this is a bit hacky but I couldn't get the "proper" way to work)
+    destination_audiofile = audiotools.TYPE_MAP["wav"].from_pcm(
+            "/tmp/out.wav",
+            gain.to_pcm(tail))
+
+    # this should work but doesn't:
+    # return (replay_gain.title_gain() <= THRESHOLD_PEAK)
+    # ... so instead we access via iteration:
+    for (track_gain, track_peak, album_gain, album_peak) in gain:
+        return (track_peak <= sensitivity)
 
 
 def __add_replay_gain__(tracks, progress=None):
@@ -295,6 +323,12 @@ if (__name__ == '__main__'):
                             dest="format",
                             help=_.OPT_FORMAT)
 
+    conversion.add_argument("--merge-gapless",
+                            action='store_true',
+                            default=False,
+                            dest="merge_gapless",
+                            help=_.OPT_MERGE)
+
     conversion.add_argument("-o", "--output",
                             dest="output",
                             help=_.OPT_OUTPUT_TRACK2TRACK)
@@ -455,29 +489,30 @@ if (__name__ == '__main__'):
         sys.exit(1)
 
     # grab the list of AudioFile objects we are converting from
-    audiofiles = []
-    input_filenames = set()
-    for filename in map(audiotools.Filename, options.filenames):
-        if filename not in input_filenames:
-            input_filenames.add(filename)
-        else:
-            msg.error(_.ERR_DUPLICATE_FILE.format(filename))
-            sys.exit(1)
+    audiofiles = audiotools.open_files(options.filenames)
+    # TODO: how much of the following is already covered by open_files?
+		#input_filenames = set()
+		#for filename in map(audiotools.Filename, options.filenames):
+		#    if filename not in input_filenames:
+		#        input_filenames.add(filename)
+		#    else:
+		#        msg.error(_.ERR_DUPLICATE_FILE.format(filename))
+		#        sys.exit(1)
 
-        try:
-            audiofile = audiotools.open(str(filename))
-            if audiofile.__class__.supports_to_pcm():
-                audiofiles.append(audiofile)
-            else:
-                msg.warning(
-                    _.ERR_UNSUPPORTED_TO_PCM.format(
-                        filename=filename, type=audiofile.NAME))
-        except audiotools.UnsupportedFile:
-            msg.warning(_.ERR_UNSUPPORTED_FILE.format(filename))
-        except audiotools.InvalidFile as err:
-            msg.warning(str(err))
-        except IOError:
-            msg.warning(_.ERR_OPEN_IOERROR.format(filename))
+		#    try:
+		#        audiofile = audiotools.open(str(filename))
+		#        if audiofile.__class__.supports_to_pcm():
+		#            audiofiles.append(audiofile)
+		#        else:
+		#            msg.warning(
+		#                _.ERR_UNSUPPORTED_TO_PCM.format(
+		#                    filename=filename, type=audiofile.NAME))
+		#    except audiotools.UnsupportedFile:
+		#        msg.warning(_.ERR_UNSUPPORTED_FILE.format(filename))
+		#    except audiotools.InvalidFile as err:
+		#        msg.warning(str(err))
+		#    except IOError:
+		#        msg.warning(_.ERR_OPEN_IOERROR.format(filename))
 
     if len(audiofiles) < 1:
         msg.error(_.ERR_FILES_REQUIRED)
@@ -659,7 +694,7 @@ if (__name__ == '__main__'):
                             if original_value != updated_value:
                                 setattr(current_metadata, attr, updated_value)
                         # and queue up conversion job to be executed
-                        conversion_jobs.append((input_track,
+                        conversion_jobs.append(([input_track],
                                                 output_class,
                                                 output_filename,
                                                 output_quality,
@@ -668,7 +703,7 @@ if (__name__ == '__main__'):
                     else:
                         # or simply queue up conversion job to be executed
                         # using only new metadata
-                        conversion_jobs.append((input_track,
+                        conversion_jobs.append(([input_track],
                                                 output_class,
                                                 output_filename,
                                                 output_quality,
@@ -706,20 +741,29 @@ if (__name__ == '__main__'):
                         album_track_gains = [None for t in album_tracks]
 
                     # queue jobs to be executed
-                    for (album_track,
-                         (output_class,
-                          output_filename,
-                          output_quality,
-                          output_metadata),
-                         output_replay_gain) in zip(album_tracks,
+                    tracks = []
+                    last=len(album_tracks)
+                    for i, (album_track,
+                             (output_class,
+                              output_filename,
+                              output_quality,
+                              output_metadata),
+                             output_replay_gain) in enumerate(zip(album_tracks,
                                                     output_tracks,
-                                                    album_track_gains):
-                        conversion_jobs.append((album_track,
+                                                    album_track_gains)):
+                        tracks.append(album_track)
+                        if len(tracks) == 1:
+                            outname = output_filename
+                        if (not options.merge_gapless
+                                or i == last
+                                or has_silent_end(album_track)):
+                            conversion_jobs.append((tracks,
                                                 output_class,
-                                                output_filename,
+                                                outname,
                                                 output_quality,
                                                 output_metadata,
                                                 output_replay_gain))
+                            tracks = []
                 except audiotools.UnsupportedTracknameField as err:
                     err.error_msg(msg)
                     sys.exit(1)
@@ -744,7 +788,7 @@ if (__name__ == '__main__'):
                 sys.exit(1)
 
         # queue conversion jobs to ProgressQueue
-        for (audiofile,
+        for (cluster,
              output_class,
              output_filename,
              output_quality,
@@ -762,9 +806,9 @@ if (__name__ == '__main__'):
                 function=convert,
                 progress_text=output_filename.__unicode__(),
                 completion_output=_.LAB_ENCODE.format(
-                    source=audiotools.Filename(audiofile.filename),
+                    source=audiotools.Filename(cluster[0].filename),
                     destination=output_filename),
-                source_audiofile=audiofile,
+                source_audiofiles=cluster,
                 destination_filename=str(output_filename),
                 destination_class=output_class,
                 compression=output_quality,
@@ -867,7 +911,7 @@ if (__name__ == '__main__'):
             progress_text=output_filename.__unicode__())
         try:
             convert(progress=progress.update,
-                    source_audiofile=audiofile,
+                    source_audiofiles=[audiofile],
                     destination_filename=str(output_filename),
                     destination_class=destination_class,
                     compression=compression,
