@@ -31,6 +31,9 @@ import termios
 
 MAX_CPUS = audiotools.MAX_JOBS
 
+DEFAULT_GAP_SECS = 0.5
+DEFAULT_GAP_PEAK = 0.015
+
 def get_track_name(cluster):
     return '/'.join((track.get_metadata().track_name for track in cluster))
 
@@ -100,7 +103,7 @@ def convert(progress,
     return destination_filename
 
 # examine the last bit of an audio track to see if it contains silence
-def has_silent_end(track, seconds=1.0, sensitivity=0.015):
+def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_PEAK):
     # grab the last TAIL_SECONDS of the track
     pcm_frames_offset = int((track.seconds_length() - seconds) * track.sample_rate())
     total_pcm_frames = int(seconds * track.sample_rate())
@@ -324,12 +327,6 @@ if (__name__ == '__main__'):
                             dest="format",
                             help=_.OPT_FORMAT)
 
-    conversion.add_argument("--merge-gapless",
-                            action='store_true',
-                            default=False,
-                            dest="merge_gapless",
-                            help=_.OPT_MERGE)
-
     conversion.add_argument("-o", "--output",
                             dest="output",
                             help=_.OPT_OUTPUT_TRACK2TRACK)
@@ -406,6 +403,28 @@ if (__name__ == '__main__'):
                         action="store_true",
                         default=False,
                         help=_.OPT_DEFAULT)
+
+    merge = parser.add_argument_group(_.OPT_CAT_MERGE)
+
+    merge.add_argument("--merge-gapless",
+                       action='store_true',
+                       default=False,
+                       dest="merge_gapless",
+                       help=_.OPT_MERGE)
+
+    merge.add_argument("--gap-secs",
+                       type=float,
+                       action='store',
+                       default=DEFAULT_GAP_SECS,
+                       dest="gap_secs",
+                       help=_.OPT_GAP_SECS + ' (' + str(DEFAULT_GAP_SECS) + ')')
+
+    merge.add_argument("--gap-peak",
+                       type=float,
+                       action='store',
+                       default=DEFAULT_GAP_PEAK,
+                       dest="gap_peak",
+                       help=_.OPT_GAP_PEAK + ' (' + str(DEFAULT_GAP_PEAK) + ')')
 
     metadata = parser.add_argument_group(_.OPT_CAT_METADATA)
 
@@ -760,7 +779,7 @@ if (__name__ == '__main__'):
                             outname = '+'.join(os.path.splitext(outname))
                         if (not options.merge_gapless
                                 or i == last
-                                or has_silent_end(album_track)):
+                                or has_padding(album_track, options.gap_secs, options.gap_peak)):
                             conversion_jobs.append((tracks,
                                                 output_class,
                                                 outname,
