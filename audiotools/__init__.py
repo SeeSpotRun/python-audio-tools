@@ -1937,7 +1937,7 @@ def sorted_tracks(audiofiles):
 
 def open_files(filename_list, sorted=True, messenger=None,
                no_duplicates=False, warn_duplicates=False,
-               opened_files=None):
+               pcm_only=False, opened_files=None):
     """returns a list of AudioFile objects
     from a list of filename strings or Filename objects
 
@@ -1979,7 +1979,12 @@ def open_files(filename_list, sorted=True, messenger=None,
                 audio_class = file_type(f)
 
             if audio_class is not None:
-                to_return.append(audio_class(str(filename)))
+                if pcm_only and not audio_class.supports_to_pcm():
+                    msg.warning(
+                        _.ERR_UNSUPPORTED_TO_PCM.format(
+                        filename=filename, type=audiofile.NAME))
+                else:
+                    to_return.append(audio_class(str(filename)))
             else:
                 # not a support audio type
                 pass
