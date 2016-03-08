@@ -31,6 +31,8 @@ import termios
 
 MAX_CPUS = audiotools.MAX_JOBS
 
+def get_track_name(cluster):
+    return '/'.join((track.get_metadata().track_name for track in cluster))
 
 def convert(progress,
             source_audiofiles,
@@ -55,7 +57,6 @@ def convert(progress,
         else:
             pcmreader = audiotools.PCMCat([track.to_pcm() for track in source_audiofiles])
             total_frames = sum(track.total_frames() for track in source_audiofiles)
-            tname = '/'.join((track.get_metadata().track_name for track in source_audiofiles))
             destination_audiofile = destination_class.from_pcm(
                 destination_filename,
                 audiotools.PCMConverter(
@@ -78,7 +79,7 @@ def convert(progress,
                 total_frames if
                 (source_audiofiles[0].lossless() and (sample_rate is None))
                 else None)
-            metadata.track_name = tname
+            metadata.track_name = get_track_name(source_audiofiles)
 
         if metadata is not None:
             destination_audiofile.set_metadata(metadata)
@@ -807,9 +808,9 @@ if (__name__ == '__main__'):
 
             queue.execute(
                 function=convert,
-                progress_text=output_filename
+                progress_text=(get_track_name(cluster) + ' -> ' + output_filename),
                 completion_output=_.LAB_ENCODE.format(
-                    source=audiotools.Filename(cluster[0].filename),
+                    source='\n\t+'.join(track.filename for track in cluster),
                     destination=output_filename),
                 source_audiofiles=cluster,
                 destination_filename=str(output_filename),
