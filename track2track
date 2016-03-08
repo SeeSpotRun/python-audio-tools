@@ -111,20 +111,12 @@ def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_PEAK):
                                       pcm_frames_offset,
                                       total_pcm_frames)
 
-    # grab ReplayGain calculator which we use to calculate the audio level in the last TAIL_SECONDS
-    gain = audiotools.ReplayGainCalculator(tail.sample_rate)
+    # process the tail of track through a replaygain calculator
+    gain_reader = audiotools.ReplayGainCalculator(tail.sample_rate).to_pcm(tail)
+    audiotools.TYPE_MAP["wav"].from_pcm("/tmp/out.wav", gain_reader)
+    # TODO: can we do this without the need to write to a /tmp output file?
 
-    # process the tail of track through the replaygain calculator
-    # (this is a bit hacky but I couldn't get the "proper" way to work)
-    destination_audiofile = audiotools.TYPE_MAP["wav"].from_pcm(
-            "/tmp/out.wav",
-            gain.to_pcm(tail))
-
-    # this should work but doesn't:
-    # return (replay_gain.title_gain() <= THRESHOLD_PEAK)
-    # ... so instead we access via iteration:
-    for (track_gain, track_peak, album_gain, album_peak) in gain:
-        return (track_peak <= sensitivity)
+    return gain_reader.title_peak() <= sensitivity
 
 
 def __add_replay_gain__(tracks, progress=None):
