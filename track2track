@@ -743,7 +743,7 @@ if (__name__ == '__main__'):
 
                     # queue jobs to be executed
                     tracks = []
-                    last=len(album_tracks)
+                    last = len(album_tracks) - 1
                     for i, (album_track,
                              (output_class,
                               output_filename,
