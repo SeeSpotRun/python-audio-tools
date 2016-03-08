@@ -426,6 +426,12 @@ if (__name__ == '__main__'):
                        dest="gap_peak",
                        help=_.OPT_GAP_PEAK + ' (' + str(DEFAULT_GAP_PEAK) + ')')
 
+    merge.add_argument("--no-sort",
+                       action='store_false',
+                       dest="sort",
+                       default=True,
+                       help=_.OPT_CAT_NOSORT)
+
     metadata = parser.add_argument_group(_.OPT_CAT_METADATA)
 
     metadata.add_argument("--replay-gain",
@@ -511,6 +517,7 @@ if (__name__ == '__main__'):
     # grab the list of AudioFile objects we are converting from
     try:
         audiofiles = audiotools.open_files(filename_list=options.filenames,
+            sorted=options.sort,
             no_duplicates=True)
     except audiotools.DuplicateFile as err:
         msg.error(_.ERR_DUPLICATE_FILE.format(err.filename))
