@@ -753,7 +753,10 @@ if (__name__ == '__main__'):
                                                     album_track_gains)):
                         tracks.append(album_track)
                         if len(tracks) == 1:
-                            outname = output_filename
+                            outname = output_filename.__unicode__()
+                        else:
+                            # add a '+' to the filename to indicate multiple tracks
+                            outname = '+'.join(os.path.splitext(outname))
                         if (not options.merge_gapless
                                 or i == last
                                 or has_silent_end(album_track)):
@@ -804,7 +807,7 @@ if (__name__ == '__main__'):
 
             queue.execute(
                 function=convert,
-                progress_text=output_filename.__unicode__(),
+                progress_text=output_filename
                 completion_output=_.LAB_ENCODE.format(
                     source=audiotools.Filename(cluster[0].filename),
                     destination=output_filename),
