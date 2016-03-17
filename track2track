@@ -743,8 +743,20 @@ if (__name__ == '__main__'):
                     else:
                         album_track_gains = [None for t in album_tracks]
 
+                    if options.merge_gapless:
+                        # add progress indicator since has_padding() is slow
+                        meta = album_tracks[0].get_metadata()
+                        if meta:
+                            albumname = (meta.album_name if meta.album_number == 1
+                                    else "%s disk %i" % (meta.album_name, meta.album_number))
+                        else:
+                            albumname = 'unknown album'
+                        progress = audiotools.SingleProgressDisplay(
+                                messenger=msg,
+                                progress_text="Checking for gapless tracks in %s" % albumname)
+                        gapless_count = 0
+
                     # queue jobs to be executed
-                    # TODO: add progress indicator since has_padding() is slow
                     tracks = []
                     last = len(album_tracks) - 1
                     for i, (album_track,
@@ -761,9 +773,11 @@ if (__name__ == '__main__'):
                         else:
                             # add a '+' to the filename to indicate multiple tracks
                             outname = '+'.join(os.path.splitext(outname))
-                        if (not options.merge_gapless
-                                or i == last
-                                or has_padding(album_track, options.gap_secs, options.gap_sens)):
+                        if (options.merge_gapless
+                                and i != last
+                                and has_padding(album_track, options.gap_secs, options.gap_sens)):
+                            gapless_count += 1
+                        else:
                             conversion_jobs.append((tracks,
                                                 output_class,
                                                 outname,
@@ -771,6 +785,13 @@ if (__name__ == '__main__'):
                                                 output_metadata,
                                                 output_replay_gain))
                             tracks = []
+                        if options.merge_gapless:
+                            progress.update(i / (last-1 if last-1 else 1))
+
+                    if options.merge_gapless:
+                        progress.clear_rows()
+                        progress.output_line('Found %i gapless tracks out of %i tracks in %s' % (gapless_count, last + 1, albumname))
+
                 except audiotools.UnsupportedTracknameField as err:
                     err.error_msg(msg)
                     sys.exit(1)
@@ -779,6 +800,8 @@ if (__name__ == '__main__'):
                         audiotools.DuplicateOutputFile) as err:
                     msg.error(err)
                     sys.exit(1)
+
+
 
         # re-check that the same output file doesn't occur more than once
         # (although process_output_options also performs that check,
