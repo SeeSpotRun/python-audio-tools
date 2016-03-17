@@ -117,6 +117,9 @@ def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_PEAK):
     # TODO: can we do this without the need to write to a /tmp output file?
 
     return gain_reader.title_peak() <= sensitivity
+    # TODO: test if gain_reader.title_peak() > sens is a better test
+    # TODO: for pop & crackle robustness, maybe split tail into several
+    #       smaller windows and test based on 2nd- or 3rd-loudest window?
 
 
 def __add_replay_gain__(tracks, progress=None):
@@ -742,6 +745,7 @@ if (__name__ == '__main__'):
                         album_track_gains = [None for t in album_tracks]
 
                     # queue jobs to be executed
+                    # TODO: add progress indicator since has_padding() is slow
                     tracks = []
                     last = len(album_tracks) - 1
                     for i, (album_track,
