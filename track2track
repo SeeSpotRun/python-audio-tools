@@ -32,7 +32,7 @@ import termios
 MAX_CPUS = audiotools.MAX_JOBS
 
 DEFAULT_GAP_SECS = 0.5
-DEFAULT_GAP_PEAK = 0.015
+DEFAULT_GAP_SENS = 40
 
 def get_track_name(cluster):
     return '/'.join((track.get_metadata().track_name for track in cluster))
@@ -103,8 +103,8 @@ def convert(progress,
     return destination_filename
 
 # examine the last bit of an audio track to see if it contains silence
-def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_PEAK):
-    # grab the last TAIL_SECONDS of the track
+def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_SENS):
+    # grab the last seconds of the track
     pcm_frames_offset = int((track.seconds_length() - seconds) * track.sample_rate())
     total_pcm_frames = int(seconds * track.sample_rate())
     tail = audiotools.PCMReaderWindow(track.to_pcm(),
@@ -116,10 +116,9 @@ def has_padding(track, seconds=DEFAULT_GAP_SECS, sensitivity=DEFAULT_GAP_PEAK):
     audiotools.TYPE_MAP["wav"].from_pcm("/tmp/out.wav", gain_reader)
     # TODO: can we do this without the need to write to a /tmp output file?
 
-    return gain_reader.title_peak() <= sensitivity
-    # TODO: test if gain_reader.title_peak() > sens is a better test
+    return gain_reader.title_gain() <= sensitivity
     # TODO: for pop & crackle robustness, maybe split tail into several
-    #       smaller windows and test based on 2nd- or 3rd-loudest window?
+    #       smaller windows and test based on 2nd-loudest window?
 
 
 def __add_replay_gain__(tracks, progress=None):
@@ -414,12 +413,12 @@ if (__name__ == '__main__'):
                        dest="gap_secs",
                        help=_.OPT_GAP_SECS + ' (' + str(DEFAULT_GAP_SECS) + ')')
 
-    merge.add_argument("--gap-peak",
+    merge.add_argument("--gap-sens",
                        type=float,
                        action='store',
-                       default=DEFAULT_GAP_PEAK,
-                       dest="gap_peak",
-                       help=_.OPT_GAP_PEAK + ' (' + str(DEFAULT_GAP_PEAK) + ')')
+                       default=DEFAULT_GAP_SENS,
+                       dest="gap_sens",
+                       help=_.OPT_GAP_SENS + ' (' + str(DEFAULT_GAP_SENS) + ')')
 
     merge.add_argument("--no-sort",
                        action='store_false',
@@ -764,7 +763,7 @@ if (__name__ == '__main__'):
                             outname = '+'.join(os.path.splitext(outname))
                         if (not options.merge_gapless
                                 or i == last
-                                or has_padding(album_track, options.gap_secs, options.gap_peak)):
+                                or has_padding(album_track, options.gap_secs, options.gap_sens)):
                             conversion_jobs.append((tracks,
                                                 output_class,
                                                 outname,
